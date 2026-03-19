@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MooMoo Clone - Pro</title>
+    <title>MooMoo Clone - Deluxe</title>
     <style>
         * {
             user-select: none;
@@ -16,6 +16,7 @@
         body { margin: 0; overflow: hidden; background: #57b031; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
 
+        /* Stats UI */
         #topUI {
             position: absolute; top: 10px; left: 10px;
             display: flex; gap: 15px; background: rgba(0,0,0,0.5);
@@ -23,46 +24,58 @@
             border: 2px solid rgba(255,255,255,0.2); z-index: 10; pointer-events: none;
         }
 
-        #craftMenu {
+        /* Crafting Menu Toggle */
+        #menuBtn {
             position: absolute; top: 10px; right: 10px;
-            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px;
-            display: flex; flex-direction: column; gap: 5px; z-index: 10;
+            width: 50px; height: 50px; background: #4a752c;
+            border: 3px solid white; border-radius: 10px; color: white;
+            font-weight: bold; font-size: 20px; cursor: pointer; z-index: 20;
         }
 
-        .craft-btn {
-            background: #4a752c; color: white; border: 2px solid #fff;
-            padding: 8px; border-radius: 5px; font-size: 12px; cursor: pointer;
+        /* Full Screen Crafting Overlay */
+        #craftOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: none;
+            justify-content: center; align-items: center; z-index: 100;
         }
+        .craft-card {
+            background: #333; padding: 20px; border-radius: 15px;
+            display: flex; gap: 20px; border: 4px solid #555;
+        }
+        .item-box {
+            width: 100px; height: 130px; background: #444; border-radius: 10px;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: space-around; color: white; font-size: 12px;
+            border: 2px solid transparent; cursor: pointer;
+        }
+        .item-box:hover { border-color: #57b031; }
 
+        /* Controls */
         #joystick-container {
             position: absolute; bottom: 50px; left: 50px;
             width: 120px; height: 120px; background: rgba(0,0,0,0.2);
             border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); z-index: 10;
         }
-
         #joystick-stick {
             position: absolute; left: 40px; top: 40px;
             width: 40px; height: 40px; background: rgba(255,255,255,0.6); 
             border-radius: 50%; pointer-events: none;
         }
-        
         .action-btns {
             position: absolute; bottom: 50px; right: 50px;
             display: flex; gap: 20px; z-index: 10;
         }
-
         .ctrl-btn {
             width: 80px; height: 80px; border-radius: 50%; border: none;
             color: white; font-weight: bold; font-size: 14px;
             box-shadow: 0 5px 0 #222;
         }
         #gatherBtn { background: #4caf50; }
-
-        /* Minimap Styling */
+        #attackBtn { background: #f44336; }
         #minimap {
-            position: absolute; bottom: 20px; right: 150px;
-            width: 120px; height: 120px; background: rgba(0,0,0,0.3);
-            border: 2px solid rgba(255,255,255,0.5); border-radius: 5px; z-index: 10;
+            position: absolute; bottom: 20px; right: 250px;
+            width: 100px; height: 100px; background: rgba(0,0,0,0.3);
+            border: 2px solid white; border-radius: 5px; z-index: 10;
         }
     </style>
 </head>
@@ -73,19 +86,29 @@
     <div>Stone: <span id="stoneCount">0</span></div>
 </div>
 
-<div id="craftMenu">
-    <button class="craft-btn" onclick="craft('wall')">WALL (10W)</button>
-    <button class="craft-btn" onclick="craft('spikes')">SPIKES (10S)</button>
+<button id="menuBtn">🛠</button>
+
+<div id="craftOverlay">
+    <div class="craft-card">
+        <div class="item-box" onclick="craft('wall')">
+            <div style="width:40px; height:40px; background:#8b4513;"></div>
+            <span>WALL</span>
+            <small>10 Wood</small>
+        </div>
+        <div class="item-box" onclick="craft('spikes')">
+            <div style="width:40px; height:40px; background:#444;"></div>
+            <span>SPIKES</span>
+            <small>10 Stone</small>
+        </div>
+        <button onclick="toggleMenu()" style="padding: 10px; background:red; color:white; border:none; border-radius:5px;">CLOSE</button>
+    </div>
 </div>
 
-<div id="joystick-container">
-    <div id="joystick-stick"></div>
-</div>
-
+<div id="joystick-container"><div id="joystick-stick"></div></div>
 <canvas id="minimap"></canvas>
-
 <div class="action-btns">
     <button id="gatherBtn" class="ctrl-btn">GATHER</button>
+    <button id="attackBtn" class="ctrl-btn">ATTACK</button>
 </div>
 
 <canvas id="gameCanvas"></canvas>
@@ -99,93 +122,54 @@ const mCtx = mCanvas.getContext('2d');
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    mCanvas.width = 120;
-    mCanvas.height = 120;
+    mCanvas.width = 100; mCanvas.height = 100;
 }
 window.addEventListener('resize', resize);
 resize();
 
-// --- Game Settings ---
-const worldSize = 5000; // Large World
-const player = { x: 2500, y: 2500, size: 25, angle: 0, resources: { wood: 0, stone: 0 } };
+// --- Game State ---
+const worldSize = 5000;
+const player = { 
+    x: 2500, y: 2500, size: 25, angle: 0, 
+    resources: { wood: 0, stone: 0 },
+    swing: 0, isSwinging: false 
+};
 const resources = [];
 const structures = [];
 let joystick = { active: false, id: null, moveX: 0, moveY: 0 };
 
-// --- Init Resources (Increased Count & Variants) ---
+// --- Spawn logic ---
 function init() {
-    for(let i=0; i<250; i++) {
-        const isBig = Math.random() > 0.8;
-        const type = Math.random() > 0.4 ? 'tree' : 'rock';
-        const size = (type === 'tree' && isBig) ? 80 : (35 + Math.random() * 20);
+    for(let i=0; i<400; i++) { // More trees
+        const rand = Math.random();
+        let type = rand > 0.3 ? 'tree' : 'rock';
+        let variant = Math.random();
+        let size = 35 + Math.random() * 20;
+        let color = '#3d5a25';
+        
+        if(type === 'tree') {
+            if(variant > 0.8) { size = 90; color = '#2d451d'; } // Giant Oak
+            else if(variant > 0.6) { size = 30; color = '#5a8236'; } // Small Bush
+        }
+
         let points = [];
         if(type === 'rock') {
             for(let j=0; j<8; j++) {
-                let angle = (j/8) * Math.PI * 2;
                 let r = size * (0.8 + Math.random() * 0.3);
-                points.push({x: Math.cos(angle) * r, y: Math.sin(angle) * r});
+                points.push({x: Math.cos((j/8)*Math.PI*2)*r, y: Math.sin((j/8)*Math.PI*2)*r});
             }
         }
-        resources.push({
-            x: Math.random() * worldSize,
-            y: Math.random() * worldSize,
-            type: type, size: size, points: points, big: isBig
-        });
+        resources.push({x: Math.random()*worldSize, y: Math.random()*worldSize, type, size, points, color});
     }
 }
 
-// --- Drawing Helpers ---
-function drawGrid(camX, camY) {
-    const gridSize = 100;
-    ctx.strokeStyle = "rgba(0,0,0,0.08)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let x = -camX % gridSize; x < canvas.width; x += gridSize) {
-        ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
-    }
-    for (let y = -camY % gridSize; y < canvas.height; y += gridSize) {
-        ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
-    }
-    ctx.stroke();
+// --- Menu Logic ---
+function toggleMenu() {
+    const menu = document.getElementById('craftOverlay');
+    menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
 }
+document.getElementById('menuBtn').onclick = toggleMenu;
 
-function drawWorldBorder(camX, camY) {
-    ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
-    // Left
-    if (camX < 0) ctx.fillRect(0, 0, -camX, canvas.height);
-    // Top
-    if (camY < 0) ctx.fillRect(0, 0, canvas.width, -camY);
-    // Right
-    if (worldSize - camX < canvas.width) ctx.fillRect(worldSize - camX, 0, canvas.width, canvas.height);
-    // Bottom
-    if (worldSize - camY < canvas.height) ctx.fillRect(0, worldSize - camY, canvas.width, canvas.height);
-}
-
-function drawTree(x, y, size, isBig) {
-    const layers = isBig ? 4 : 3;
-    const colorStep = 15;
-    for(let i=0; i<layers; i++) {
-        ctx.fillStyle = `rgb(${61 + i*colorStep}, ${90 + i*colorStep}, ${37 + i*colorStep})`;
-        ctx.beginPath(); 
-        ctx.arc(x, y, size * (1 - i*0.25), 0, Math.PI*2); 
-        ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.1)";
-        ctx.stroke();
-    }
-}
-
-function drawMinimap() {
-    mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
-    // Player indicator
-    const px = (player.x / worldSize) * mCanvas.width;
-    const py = (player.y / worldSize) * mCanvas.height;
-    mCtx.fillStyle = "white";
-    mCtx.beginPath();
-    mCtx.arc(px, py, 4, 0, Math.PI*2);
-    mCtx.fill();
-}
-
-// --- Interaction Logic ---
 function craft(item) {
     if(item === 'wall' && player.resources.wood >= 10) {
         player.resources.wood -= 10;
@@ -195,6 +179,7 @@ function craft(item) {
         structures.push({x: player.x + Math.cos(player.angle)*60, y: player.y + Math.sin(player.angle)*60, color: '#444'});
     }
     updateUI();
+    toggleMenu();
 }
 
 function updateUI() {
@@ -202,7 +187,22 @@ function updateUI() {
     document.getElementById('stoneCount').innerText = player.resources.stone;
 }
 
-// --- Input Handling ---
+// --- Animations & Actions ---
+function performAction() {
+    if(player.isSwinging) return;
+    player.isSwinging = true;
+    player.swing = 0;
+
+    resources.forEach((res) => {
+        if(Math.hypot(player.x - res.x, player.y - res.y) < (res.size + 50)) {
+            if(res.type === 'tree') player.resources.wood += (res.size > 70 ? 5 : 2);
+            else player.resources.stone += 2;
+            updateUI();
+        }
+    });
+}
+
+// --- Touch Fix ---
 const joyContainer = document.getElementById('joystick-container');
 const joyStick = document.getElementById('joystick-stick');
 
@@ -210,21 +210,18 @@ window.addEventListener('touchstart', (e) => {
     for(let t of e.changedTouches) {
         let rect = joyContainer.getBoundingClientRect();
         if(t.clientX > rect.left && t.clientX < rect.right && t.clientY > rect.top && t.clientY < rect.bottom) {
-            joystick.active = true;
-            joystick.id = t.identifier;
+            joystick.active = true; joystick.id = t.identifier;
         }
     }
-}, {passive: false});
+});
 
 window.addEventListener('touchmove', (e) => {
     if (!joystick.active) return;
     for(let t of e.touches) {
         if(t.identifier === joystick.id) {
             let rect = joyContainer.getBoundingClientRect();
-            let centerX = rect.left + rect.width/2;
-            let centerY = rect.top + rect.height/2;
-            let dx = t.clientX - centerX;
-            let dy = t.clientY - centerY;
+            let dx = t.clientX - (rect.left + 60);
+            let dy = t.clientY - (rect.top + 60);
             let dist = Math.min(Math.sqrt(dx*dx + dy*dy), 40);
             let angle = Math.atan2(dy, dx);
             joystick.moveX = Math.cos(angle) * (dist/40);
@@ -233,83 +230,78 @@ window.addEventListener('touchmove', (e) => {
             joyStick.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
         }
     }
-}, {passive: false});
+});
 
 window.addEventListener('touchend', (e) => {
-    for(let t of e.changedTouches) {
-        if(t.identifier === joystick.id) {
-            joystick.active = false; joystick.id = null;
-            joystick.moveX = 0; joystick.moveY = 0;
-            joyStick.style.transform = `translate(0px, 0px)`;
-        }
+    for(let t of e.changedTouches) if(t.identifier === joystick.id) {
+        joystick.active = false; joystick.moveX = 0; joystick.moveY = 0;
+        joyStick.style.transform = `translate(0,0)`;
     }
 });
 
-document.getElementById('gatherBtn').addEventListener('touchstart', (e) => {
-    resources.forEach((res) => {
-        if(Math.hypot(player.x - res.x, player.y - res.y) < (res.size + 40)) {
-            let gain = res.big ? 5 : 2;
-            if(res.type === 'tree') player.resources.wood += gain;
-            else player.resources.stone += gain;
-            updateUI();
-        }
-    });
-});
+document.getElementById('gatherBtn').ontouchstart = performAction;
+document.getElementById('attackBtn').ontouchstart = performAction;
 
 // --- Main Loop ---
 function loop() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Movement + World Border Constraints
+    ctx.clearRect(0,0,canvas.width, canvas.height);
     player.x = Math.max(0, Math.min(worldSize, player.x + joystick.moveX * 6));
     player.y = Math.max(0, Math.min(worldSize, player.y + joystick.moveY * 6));
+    const camX = player.x - canvas.width/2;
+    const camY = player.y - canvas.height/2;
 
-    const camX = player.x - canvas.width / 2;
-    const camY = player.y - canvas.height / 2;
+    // Grid & Border
+    ctx.strokeStyle = "rgba(0,0,0,0.05)"; ctx.beginPath();
+    for(let x=-camX%100; x<canvas.width; x+=100){ctx.moveTo(x,0); ctx.lineTo(x,canvas.height);}
+    for(let y=-camY%100; y<canvas.height; y+=100){ctx.moveTo(0,y); ctx.lineTo(canvas.width,y);}
+    ctx.stroke();
 
-    drawGrid(camX, camY);
-    drawWorldBorder(camX, camY);
-
-    // Render Resources (Culling: only draw if near camera)
+    // Resources
     resources.forEach(res => {
-        if(res.x > camX - 100 && res.x < camX + canvas.width + 100 &&
-           res.y > camY - 100 && res.y < camY + canvas.height + 100) {
-            if(res.type === 'tree') drawTree(res.x - camX, res.y - camY, res.size, res.big);
-            else {
-                ctx.fillStyle = '#888'; ctx.strokeStyle = '#666'; ctx.lineWidth = 3;
-                ctx.beginPath();
-                res.points.forEach((p, i) => {
-                    if(i === 0) ctx.moveTo(res.x - camX + p.x, res.y - camY + p.y);
-                    else ctx.lineTo(res.x - camX + p.x, res.y - camY + p.y);
-                });
-                ctx.closePath(); ctx.fill(); ctx.stroke();
+        if(res.x > camX-100 && res.x < camX+canvas.width+100 && res.y > camY-100 && res.y < camY+canvas.height+100) {
+            if(res.type === 'tree') {
+                for(let i=0; i<3; i++) {
+                    ctx.fillStyle = res.color; ctx.beginPath();
+                    ctx.arc(res.x-camX, res.y-camY, res.size*(1-i*0.3), 0, Math.PI*2); ctx.fill();
+                }
+            } else {
+                ctx.fillStyle = '#888'; ctx.beginPath();
+                res.points.forEach((p,i)=> i===0?ctx.moveTo(res.x-camX+p.x, res.y-camY+p.y):ctx.lineTo(res.x-camX+p.x, res.y-camY+p.y));
+                ctx.fill();
             }
         }
     });
 
-    // Draw Structures
+    // Structures
     structures.forEach(s => {
-        ctx.fillStyle = s.color;
-        ctx.fillRect(s.x - camX - 15, s.y - camY - 15, 30, 30);
-        ctx.strokeRect(s.x - camX - 15, s.y - camY - 15, 30, 30);
+        ctx.fillStyle = s.color; ctx.fillRect(s.x-camX-15, s.y-camY-15, 30, 30);
     });
 
-    // Draw Player Center Screen
+    // Player with Hand Animation
+    if(player.isSwinging) {
+        player.swing += 0.2;
+        if(player.swing >= Math.PI) { player.isSwinging = false; player.swing = 0; }
+    }
+    const handOffset = Math.sin(player.swing) * 15;
+
     ctx.save();
     ctx.translate(canvas.width/2, canvas.height/2);
     ctx.rotate(player.angle);
-    ctx.fillStyle = '#f3e5ab'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(20, -18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(20, 18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f3e5ab'; ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+    // Hands
+    ctx.beginPath(); ctx.arc(20 + handOffset, -18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(20 + handOffset, 18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // Body
     ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
 
-    drawMinimap();
+    // Minimap
+    mCtx.clearRect(0,0,100,100); mCtx.fillStyle="white";
+    mCtx.beginPath(); mCtx.arc((player.x/worldSize)*100, (player.y/worldSize)*100, 3, 0, Math.PI*2); mCtx.fill();
+
     requestAnimationFrame(loop);
 }
-
-init();
-loop();
+init(); loop();
 </script>
 </body>
 </html>
