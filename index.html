@@ -1,19 +1,26 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MooMoo Clone - Canopy Update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>MooMoo Clone - Nature Update</title>
     <style>
         * {
             user-select: none;
             -webkit-user-select: none;
             -webkit-touch-callout: none;
+            /* Prevents all browser-level gestures like zooming and panning */
             touch-action: none;
             outline: none;
         }
         
-        body { margin: 0; overflow: hidden; background: #57b031; font-family: 'Arial', sans-serif; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #57b031; /* Base grass color */
+            font-family: 'Arial', sans-serif; 
+        }
+
         canvas { display: block; }
 
         #topUI {
@@ -69,7 +76,6 @@
         #gatherBtn { background: #4caf50; }
         #attackBtn { background: #f44336; }
 
-        /* Vignette Effect for Under Trees */
         #vignette {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: radial-gradient(circle, transparent 40%, rgba(0,30,0,0.6) 100%);
@@ -133,13 +139,41 @@ const player = {
 };
 const resources = [];
 const structures = [];
+const waterBodies = [];
+const grassTufts = [];
 let joystick = { active: false, id: null, moveX: 0, moveY: 0 };
 
-// --- Spawn logic ---
+// --- Nature Generation ---
 function init() {
-    for(let i=0; i<450; i++) { 
-        let type = Math.random() > 0.3 ? 'tree' : 'rock';
-        let size = type === 'tree' ? 100 + Math.random() * 80 : 40 + Math.random() * 20;
+    // 1. Create Ponds and Lakes
+    for(let i=0; i<12; i++) {
+        waterBodies.push({
+            x: Math.random() * worldSize,
+            y: Math.random() * worldSize,
+            r: 150 + Math.random() * 300
+        });
+    }
+
+    // 2. Create Grass Tufts (Visual detail)
+    for(let i=0; i<800; i++) {
+        grassTufts.push({
+            x: Math.random() * worldSize,
+            y: Math.random() * worldSize,
+            w: 2 + Math.random() * 4
+        });
+    }
+
+    // 3. Spawn Resources (Decreased trees slightly)
+    for(let i=0; i<350; i++) { 
+        let type = Math.random() > 0.25 ? 'tree' : 'rock';
+        let size = type === 'tree' ? 120 + Math.random() * 60 : 40 + Math.random() * 20;
+        let x = Math.random() * worldSize;
+        let y = Math.random() * worldSize;
+
+        // Don't spawn trees inside water
+        let inWater = waterBodies.some(w => Math.hypot(x-w.x, y-w.y) < w.r);
+        if(inWater) { i--; continue; }
+
         let points = [];
         if(type === 'rock') {
             for(let j=0; j<8; j++) {
@@ -147,7 +181,7 @@ function init() {
                 points.push({x: Math.cos((j/8)*Math.PI*2)*r, y: Math.sin((j/8)*Math.PI*2)*r});
             }
         }
-        resources.push({x: Math.random()*worldSize, y: Math.random()*worldSize, type, size, points});
+        resources.push({x, y, type, size, points});
     }
 }
 
@@ -170,7 +204,6 @@ function craft(item) {
     toggleMenu();
 }
 
-// --- Action Logic ---
 function performAction() {
     if(player.isSwinging) return;
     player.isSwinging = true;
@@ -186,7 +219,7 @@ function performAction() {
     });
 }
 
-// --- Controls ---
+// --- Inputs ---
 const joyContainer = document.getElementById('joystick-container');
 const joyStick = document.getElementById('joystick-stick');
 
@@ -197,7 +230,7 @@ window.addEventListener('touchstart', (e) => {
             joystick.active = true; joystick.id = t.identifier;
         }
     }
-});
+}, {passive: false});
 
 window.addEventListener('touchmove', (e) => {
     if (!joystick.active) return;
@@ -214,7 +247,7 @@ window.addEventListener('touchmove', (e) => {
             joyStick.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
         }
     }
-});
+}, {passive: false});
 
 window.addEventListener('touchend', (e) => {
     for(let t of e.changedTouches) if(t.identifier === joystick.id) {
@@ -226,11 +259,35 @@ window.addEventListener('touchend', (e) => {
 document.getElementById('gatherBtn').ontouchstart = performAction;
 document.getElementById('attackBtn').ontouchstart = performAction;
 
-// --- Rendering Trees ---
+// --- Rendering Logic ---
+function drawGrass(ctx, camX, camY) {
+    ctx.fillStyle = "#4fa12b"; // Slightly darker grass tuft color
+    grassTufts.forEach(t => {
+        if(t.x > camX-20 && t.x < camX+canvas.width+20 && t.y > camY-20 && t.y < camY+canvas.height+20) {
+            ctx.beginPath();
+            ctx.arc(t.x - camX, t.y - camY, t.w, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+}
+
+function drawWater(ctx, camX, camY) {
+    ctx.fillStyle = "#4a90e2";
+    ctx.strokeStyle = "#357abd";
+    ctx.lineWidth = 10;
+    waterBodies.forEach(w => {
+        if(w.x > camX-w.r && w.x < camX+canvas.width+w.r && w.y > camY-w.r && w.y < camY+canvas.height+w.r) {
+            ctx.beginPath();
+            ctx.arc(w.x - camX, w.y - camY, w.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+    });
+}
+
 function drawTree(ctx, x, y, size, alpha) {
     ctx.globalAlpha = alpha;
-    const layers = 5;
-    for(let i=0; i<layers; i++) {
+    for(let i=0; i<5; i++) {
         ctx.fillStyle = i % 2 === 0 ? '#3d5a25' : '#4a6d2c';
         ctx.beginPath();
         ctx.arc(x, y, size * (1 - i*0.15), 0, Math.PI*2);
@@ -250,13 +307,17 @@ function loop() {
     const camX = player.x - canvas.width/2;
     const camY = player.y - canvas.height/2;
 
-    // 1. Grid
-    ctx.strokeStyle = "rgba(0,0,0,0.05)"; ctx.beginPath();
+    // 1. Water and Ground
+    drawWater(ctx, camX, camY);
+    drawGrass(ctx, camX, camY);
+
+    // 2. Grid (Subtle)
+    ctx.strokeStyle = "rgba(0,0,0,0.03)"; ctx.beginPath();
     for(let x=-camX%100; x<canvas.width; x+=100){ctx.moveTo(x,0); ctx.lineTo(x,canvas.height);}
     for(let y=-camY%100; y<canvas.height; y+=100){ctx.moveTo(0,y); ctx.lineTo(canvas.width,y);}
     ctx.stroke();
 
-    // 2. Rocks & Structures
+    // 3. Rocks & Structures
     resources.forEach(res => {
         if(res.type === 'rock') {
             ctx.fillStyle = '#888'; ctx.beginPath();
@@ -268,7 +329,7 @@ function loop() {
         ctx.fillStyle = s.color; ctx.fillRect(s.x-camX-15, s.y-camY-15, 30, 30);
     });
 
-    // 3. Player (Drawn under trees)
+    // 4. Player
     if(player.isSwinging) {
         player.swing += 0.2;
         if(player.swing >= Math.PI) { player.isSwinging = false; player.swing = 0; }
@@ -283,24 +344,18 @@ function loop() {
     ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
 
-    // 4. Trees (Drawn on TOP of player)
+    // 5. Trees (On top)
     let isCurrentlyUnder = false;
     resources.forEach(res => {
         if(res.type === 'tree') {
             const dist = Math.hypot(player.x - res.x, player.y - res.y);
             let alpha = 1.0;
-            if(dist < res.size) { 
-                alpha = 0.4; // Ghosting effect
-                isCurrentlyUnder = true; 
-            }
+            if(dist < res.size) { alpha = 0.4; isCurrentlyUnder = true; }
             drawTree(ctx, res.x - camX, res.y - camY, res.size, alpha);
         }
     });
 
-    // Handle Vignette
-    player.underTree = isCurrentlyUnder;
-    vignette.style.opacity = player.underTree ? "1" : "0";
-
+    vignette.style.opacity = isCurrentlyUnder ? "1" : "0";
     requestAnimationFrame(loop);
 }
 init(); loop();
