@@ -3,24 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MooMoo Clone - Fixed</title>
+    <title>MooMoo Clone - Camera & Polish</title>
     <style>
-        /* Brighter, more vibrant green for the grass */
-        body { margin: 0; overflow: hidden; background: #57b031; font-family: 'Arial', sans-serif; touch-action: none; }
+        /* CRITICAL: Prevents highlighting, zooming, and scrolling bugs */
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            touch-action: none;
+            outline: none;
+        }
+        
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #57b031; 
+            font-family: 'Arial', sans-serif; 
+        }
+
         canvas { display: block; }
 
         #topUI {
             position: absolute; top: 10px; left: 10px;
             display: flex; gap: 15px; background: rgba(0,0,0,0.5);
-            padding: 8px 15px; border-radius: 20px; color: white; pointer-events: none;
+            padding: 8px 15px; border-radius: 20px; color: white;
             border: 2px solid rgba(255,255,255,0.2);
+            z-index: 10; pointer-events: none;
         }
 
         #craftMenu {
             position: absolute; top: 10px; right: 10px;
             background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px;
-            display: flex; flex-direction: column; gap: 5px;
+            display: flex; flex-direction: column; gap: 5px; z-index: 10;
         }
+
         .craft-btn {
             background: #4a752c; color: white; border: 2px solid #fff;
             padding: 8px; border-radius: 5px; font-size: 12px; cursor: pointer;
@@ -29,21 +45,25 @@
         #joystick-container {
             position: absolute; bottom: 50px; left: 50px;
             width: 120px; height: 120px; background: rgba(0,0,0,0.2);
-            border-radius: 50%; touch-action: none;
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.1);
+            z-index: 10;
         }
+
         #joystick-stick {
             position: absolute; left: 40px; top: 40px;
-            width: 40px; height: 40px; background: rgba(255,255,255,0.6); border-radius: 50%;
+            width: 40px; height: 40px; background: rgba(255,255,255,0.6); 
+            border-radius: 50%; pointer-events: none;
         }
         
         .action-btns {
             position: absolute; bottom: 50px; right: 50px;
-            display: flex; gap: 20px;
+            display: flex; gap: 20px; z-index: 10;
         }
+
         .ctrl-btn {
             width: 80px; height: 80px; border-radius: 50%; border: none;
             color: white; font-weight: bold; font-size: 14px;
-            box-shadow: 0 5px 0 #222; cursor: pointer;
+            box-shadow: 0 5px 0 #222;
         }
         #gatherBtn { background: #4caf50; }
         #attackBtn { background: #f44336; }
@@ -75,23 +95,28 @@
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
 
-// --- State ---
-const player = { x: canvas.width/2, y: canvas.height/2, size: 25, angle: 0, resources: { wood: 0, stone: 0 } };
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Game State ---
+const player = { x: 500, y: 500, size: 25, angle: 0, resources: { wood: 0, stone: 0 } };
 const resources = [];
 const structures = [];
-let joystick = { active: false, identifier: null, x: 0, y: 0, moveX: 0, moveY: 0 };
+const worldSize = 3000; // Larger world for the camera to move in
 
-// --- Initialize Resources ---
+let joystick = { active: false, id: null, moveX: 0, moveY: 0 };
+
+// --- Init Resources (Scattered in Large World) ---
 function init() {
-    for(let i=0; i<25; i++) {
+    for(let i=0; i<100; i++) {
         const type = Math.random() > 0.4 ? 'tree' : 'rock';
         const size = 35 + Math.random() * 20;
         let points = [];
-        
-        // Pre-calculate rock jaggedness so it doesn't "shake"
         if(type === 'rock') {
             for(let j=0; j<8; j++) {
                 let angle = (j/8) * Math.PI * 2;
@@ -99,66 +124,64 @@ function init() {
                 points.push({x: Math.cos(angle) * r, y: Math.sin(angle) * r});
             }
         }
-
         resources.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            type: type,
-            size: size,
-            points: points
+            x: Math.random() * worldSize,
+            y: Math.random() * worldSize,
+            type: type, size: size, points: points
         });
     }
 }
 
-// --- Specialized Drawing ---
+// --- Drawing Logic (Using Camera Offset) ---
+function drawGrid(camX, camY) {
+    const gridSize = 50;
+    ctx.strokeStyle = "rgba(0,0,0,0.05)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = -camX % gridSize; x < canvas.width; x += gridSize) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+    }
+    for (let y = -camY % gridSize; y < canvas.height; y += gridSize) {
+        ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+    }
+    ctx.stroke();
+}
+
 function drawTree(x, y, size) {
-    // Top-down view: Concentric green circles
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-    
-    // Outer layer
     ctx.fillStyle = '#3d5a25';
     ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    // Mid layer
     ctx.fillStyle = '#4a6d2c';
     ctx.beginPath(); ctx.arc(x, y, size * 0.6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    // Center layer
     ctx.fillStyle = '#5a8236';
     ctx.beginPath(); ctx.arc(x, y, size * 0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
 }
 
-function drawRock(res) {
+function drawRock(res, camX, camY) {
     ctx.fillStyle = '#888';
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 3;
     ctx.beginPath();
     res.points.forEach((p, i) => {
-        if(i === 0) ctx.moveTo(res.x + p.x, res.y + p.y);
-        else ctx.lineTo(res.x + p.x, res.y + p.y);
+        const tx = (res.x - camX) + p.x;
+        const ty = (res.y - camY) + p.y;
+        if(i === 0) ctx.moveTo(tx, ty);
+        else ctx.lineTo(tx, ty);
     });
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
-// --- Crafting & Mechanics ---
+// --- Mechanics ---
 function craft(item) {
     if(item === 'wall' && player.resources.wood >= 10) {
         player.resources.wood -= 10;
-        placeStructure('#8b4513');
+        structures.push({x: player.x + Math.cos(player.angle)*60, y: player.y + Math.sin(player.angle)*60, color: '#8b4513'});
     } else if(item === 'spikes' && player.resources.stone >= 10) {
         player.resources.stone -= 10;
-        placeStructure('#444');
+        structures.push({x: player.x + Math.cos(player.angle)*60, y: player.y + Math.sin(player.angle)*60, color: '#444'});
     }
     updateUI();
-}
-
-function placeStructure(color) {
-    structures.push({
-        x: player.x + Math.cos(player.angle) * 60,
-        y: player.y + Math.sin(player.angle) * 60,
-        color: color
-    });
 }
 
 function updateUI() {
@@ -166,57 +189,55 @@ function updateUI() {
     document.getElementById('stoneCount').innerText = player.resources.stone;
 }
 
-// --- Multi-Touch Controller Fix ---
+// --- Touch Fixes ---
 const joyContainer = document.getElementById('joystick-container');
 const joyStick = document.getElementById('joystick-stick');
 
-canvas.addEventListener('touchstart', handleTouch, {passive: false});
-canvas.addEventListener('touchmove', handleTouch, {passive: false});
-canvas.addEventListener('touchend', (e) => {
-    // Check if the joystick touch ended
+window.addEventListener('touchstart', (e) => {
     for(let i=0; i<e.changedTouches.length; i++) {
-        if(e.changedTouches[i].identifier === joystick.identifier) {
+        let t = e.changedTouches[i];
+        let rect = joyContainer.getBoundingClientRect();
+        if(t.clientX > rect.left && t.clientX < rect.right && t.clientY > rect.top && t.clientY < rect.bottom) {
+            joystick.active = true;
+            joystick.id = t.identifier;
+        }
+    }
+}, {passive: false});
+
+window.addEventListener('touchmove', (e) => {
+    if (!joystick.active) return;
+    for(let i=0; i<e.touches.length; i++) {
+        let t = e.touches[i];
+        if(t.identifier === joystick.id) {
+            let rect = joyContainer.getBoundingClientRect();
+            let centerX = rect.left + rect.width/2;
+            let centerY = rect.top + rect.height/2;
+            let dx = t.clientX - centerX;
+            let dy = t.clientY - centerY;
+            let dist = Math.min(Math.sqrt(dx*dx + dy*dy), 40);
+            let angle = Math.atan2(dy, dx);
+            joystick.moveX = Math.cos(angle) * (dist/40);
+            joystick.moveY = Math.sin(angle) * (dist/40);
+            player.angle = angle;
+            joyStick.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
+        }
+    }
+}, {passive: false});
+
+window.addEventListener('touchend', (e) => {
+    for(let i=0; i<e.changedTouches.length; i++) {
+        if(e.changedTouches[i].identifier === joystick.identifier || e.changedTouches[i].identifier === joystick.id) {
             joystick.active = false;
-            joystick.identifier = null;
+            joystick.id = null;
             joystick.moveX = 0; joystick.moveY = 0;
             joyStick.style.transform = `translate(0px, 0px)`;
         }
     }
 });
 
-function handleTouch(e) {
-    e.preventDefault();
-    const rect = joyContainer.getBoundingClientRect();
-    const centerX = rect.left + rect.width/2;
-    const centerY = rect.top + rect.height/2;
-
-    for(let i=0; i<e.touches.length; i++) {
-        let t = e.touches[i];
-        // If touch is inside joystick area
-        if(t.clientX > rect.left && t.clientX < rect.right && t.clientY > rect.top && t.clientY < rect.bottom) {
-            joystick.active = true;
-            joystick.identifier = t.identifier;
-            
-            let dx = t.clientX - centerX;
-            let dy = t.clientY - centerY;
-            let dist = Math.min(Math.sqrt(dx*dx + dy*dy), 40);
-            let angle = Math.atan2(dy, dx);
-            
-            joystick.moveX = Math.cos(angle) * (dist/40);
-            joystick.moveY = Math.sin(angle) * (dist/40);
-            player.angle = angle;
-            
-            joyStick.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
-        }
-    }
-}
-
-// Gather Action (Separate from Joystick)
 document.getElementById('gatherBtn').addEventListener('touchstart', (e) => {
-    e.preventDefault();
     resources.forEach((res) => {
-        const dist = Math.hypot(player.x - res.x, player.y - res.y);
-        if(dist < 80) {
+        if(Math.hypot(player.x - res.x, player.y - res.y) < 80) {
             if(res.type === 'tree') player.resources.wood += 2;
             else player.resources.stone += 2;
             updateUI();
@@ -224,43 +245,43 @@ document.getElementById('gatherBtn').addEventListener('touchstart', (e) => {
     });
 });
 
-// --- Main Game Loop ---
+// --- Main Loop ---
 function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Movement
-    player.x += joystick.moveX * 4;
-    player.y += joystick.moveY * 4;
+    // Update Position
+    player.x += joystick.moveX * 5;
+    player.y += joystick.moveY * 5;
 
-    // Draw Objects
+    // Camera Calculation (Keep player in center)
+    const camX = player.x - canvas.width / 2;
+    const camY = player.y - canvas.height / 2;
+
+    drawGrid(camX, camY);
+
+    // Draw Resources
     resources.forEach(res => {
-        if(res.type === 'tree') drawTree(res.x, res.y, res.size);
-        else drawRock(res);
+        if(res.type === 'tree') drawTree(res.x - camX, res.y - camY, res.size);
+        else drawRock(res, camX, camY);
     });
 
+    // Draw Structures
     structures.forEach(s => {
         ctx.fillStyle = s.color;
-        ctx.fillRect(s.x-15, s.y-15, 30, 30);
-        ctx.strokeRect(s.x-15, s.y-15, 30, 30);
+        ctx.fillRect(s.x - camX - 15, s.y - camY - 15, 30, 30);
+        ctx.strokeRect(s.x - camX - 15, s.y - camY - 15, 30, 30);
     });
 
-    // Draw Player + Hands
+    // Draw Player (Locked to Screen Center)
     ctx.save();
-    ctx.translate(player.x, player.y);
+    ctx.translate(canvas.width/2, canvas.height/2);
     ctx.rotate(player.angle);
-    
+    ctx.fillStyle = '#f3e5ab'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
     // Hands
-    ctx.fillStyle = '#f3e5ab';
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(20, -18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.arc(20, 18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-
     // Body
-    ctx.fillStyle = '#f3e5ab';
-    ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill();
-    ctx.stroke();
-    
+    ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
 
     requestAnimationFrame(loop);
