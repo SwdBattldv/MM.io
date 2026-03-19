@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MooMoo Clone - Camera & Polish</title>
+    <title>MooMoo Clone - Pro</title>
     <style>
-        /* CRITICAL: Prevents highlighting, zooming, and scrolling bugs */
         * {
             user-select: none;
             -webkit-user-select: none;
@@ -14,21 +13,14 @@
             outline: none;
         }
         
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            background: #57b031; 
-            font-family: 'Arial', sans-serif; 
-        }
-
+        body { margin: 0; overflow: hidden; background: #57b031; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
 
         #topUI {
             position: absolute; top: 10px; left: 10px;
             display: flex; gap: 15px; background: rgba(0,0,0,0.5);
             padding: 8px 15px; border-radius: 20px; color: white;
-            border: 2px solid rgba(255,255,255,0.2);
-            z-index: 10; pointer-events: none;
+            border: 2px solid rgba(255,255,255,0.2); z-index: 10; pointer-events: none;
         }
 
         #craftMenu {
@@ -45,8 +37,7 @@
         #joystick-container {
             position: absolute; bottom: 50px; left: 50px;
             width: 120px; height: 120px; background: rgba(0,0,0,0.2);
-            border-radius: 50%; border: 2px solid rgba(255,255,255,0.1);
-            z-index: 10;
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); z-index: 10;
         }
 
         #joystick-stick {
@@ -66,7 +57,13 @@
             box-shadow: 0 5px 0 #222;
         }
         #gatherBtn { background: #4caf50; }
-        #attackBtn { background: #f44336; }
+
+        /* Minimap Styling */
+        #minimap {
+            position: absolute; bottom: 20px; right: 150px;
+            width: 120px; height: 120px; background: rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.5); border-radius: 5px; z-index: 10;
+        }
     </style>
 </head>
 <body>
@@ -85,9 +82,10 @@
     <div id="joystick-stick"></div>
 </div>
 
+<canvas id="minimap"></canvas>
+
 <div class="action-btns">
     <button id="gatherBtn" class="ctrl-btn">GATHER</button>
-    <button id="attackBtn" class="ctrl-btn">ATTACK</button>
 </div>
 
 <canvas id="gameCanvas"></canvas>
@@ -95,27 +93,31 @@
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const mCanvas = document.getElementById('minimap');
+const mCtx = mCanvas.getContext('2d');
 
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    mCanvas.width = 120;
+    mCanvas.height = 120;
 }
 window.addEventListener('resize', resize);
 resize();
 
-// --- Game State ---
-const player = { x: 500, y: 500, size: 25, angle: 0, resources: { wood: 0, stone: 0 } };
+// --- Game Settings ---
+const worldSize = 5000; // Large World
+const player = { x: 2500, y: 2500, size: 25, angle: 0, resources: { wood: 0, stone: 0 } };
 const resources = [];
 const structures = [];
-const worldSize = 3000; // Larger world for the camera to move in
-
 let joystick = { active: false, id: null, moveX: 0, moveY: 0 };
 
-// --- Init Resources (Scattered in Large World) ---
+// --- Init Resources (Increased Count & Variants) ---
 function init() {
-    for(let i=0; i<100; i++) {
+    for(let i=0; i<250; i++) {
+        const isBig = Math.random() > 0.8;
         const type = Math.random() > 0.4 ? 'tree' : 'rock';
-        const size = 35 + Math.random() * 20;
+        const size = (type === 'tree' && isBig) ? 80 : (35 + Math.random() * 20);
         let points = [];
         if(type === 'rock') {
             for(let j=0; j<8; j++) {
@@ -127,16 +129,16 @@ function init() {
         resources.push({
             x: Math.random() * worldSize,
             y: Math.random() * worldSize,
-            type: type, size: size, points: points
+            type: type, size: size, points: points, big: isBig
         });
     }
 }
 
-// --- Drawing Logic (Using Camera Offset) ---
+// --- Drawing Helpers ---
 function drawGrid(camX, camY) {
-    const gridSize = 50;
-    ctx.strokeStyle = "rgba(0,0,0,0.05)";
-    ctx.lineWidth = 1;
+    const gridSize = 100;
+    ctx.strokeStyle = "rgba(0,0,0,0.08)";
+    ctx.lineWidth = 2;
     ctx.beginPath();
     for (let x = -camX % gridSize; x < canvas.width; x += gridSize) {
         ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
@@ -147,32 +149,43 @@ function drawGrid(camX, camY) {
     ctx.stroke();
 }
 
-function drawTree(x, y, size) {
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-    ctx.fillStyle = '#3d5a25';
-    ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#4a6d2c';
-    ctx.beginPath(); ctx.arc(x, y, size * 0.6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#5a8236';
-    ctx.beginPath(); ctx.arc(x, y, size * 0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+function drawWorldBorder(camX, camY) {
+    ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+    // Left
+    if (camX < 0) ctx.fillRect(0, 0, -camX, canvas.height);
+    // Top
+    if (camY < 0) ctx.fillRect(0, 0, canvas.width, -camY);
+    // Right
+    if (worldSize - camX < canvas.width) ctx.fillRect(worldSize - camX, 0, canvas.width, canvas.height);
+    // Bottom
+    if (worldSize - camY < canvas.height) ctx.fillRect(0, worldSize - camY, canvas.width, canvas.height);
 }
 
-function drawRock(res, camX, camY) {
-    ctx.fillStyle = '#888';
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    res.points.forEach((p, i) => {
-        const tx = (res.x - camX) + p.x;
-        const ty = (res.y - camY) + p.y;
-        if(i === 0) ctx.moveTo(tx, ty);
-        else ctx.lineTo(tx, ty);
-    });
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+function drawTree(x, y, size, isBig) {
+    const layers = isBig ? 4 : 3;
+    const colorStep = 15;
+    for(let i=0; i<layers; i++) {
+        ctx.fillStyle = `rgb(${61 + i*colorStep}, ${90 + i*colorStep}, ${37 + i*colorStep})`;
+        ctx.beginPath(); 
+        ctx.arc(x, y, size * (1 - i*0.25), 0, Math.PI*2); 
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.1)";
+        ctx.stroke();
+    }
 }
 
-// --- Mechanics ---
+function drawMinimap() {
+    mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+    // Player indicator
+    const px = (player.x / worldSize) * mCanvas.width;
+    const py = (player.y / worldSize) * mCanvas.height;
+    mCtx.fillStyle = "white";
+    mCtx.beginPath();
+    mCtx.arc(px, py, 4, 0, Math.PI*2);
+    mCtx.fill();
+}
+
+// --- Interaction Logic ---
 function craft(item) {
     if(item === 'wall' && player.resources.wood >= 10) {
         player.resources.wood -= 10;
@@ -189,13 +202,12 @@ function updateUI() {
     document.getElementById('stoneCount').innerText = player.resources.stone;
 }
 
-// --- Touch Fixes ---
+// --- Input Handling ---
 const joyContainer = document.getElementById('joystick-container');
 const joyStick = document.getElementById('joystick-stick');
 
 window.addEventListener('touchstart', (e) => {
-    for(let i=0; i<e.changedTouches.length; i++) {
-        let t = e.changedTouches[i];
+    for(let t of e.changedTouches) {
         let rect = joyContainer.getBoundingClientRect();
         if(t.clientX > rect.left && t.clientX < rect.right && t.clientY > rect.top && t.clientY < rect.bottom) {
             joystick.active = true;
@@ -206,8 +218,7 @@ window.addEventListener('touchstart', (e) => {
 
 window.addEventListener('touchmove', (e) => {
     if (!joystick.active) return;
-    for(let i=0; i<e.touches.length; i++) {
-        let t = e.touches[i];
+    for(let t of e.touches) {
         if(t.identifier === joystick.id) {
             let rect = joyContainer.getBoundingClientRect();
             let centerX = rect.left + rect.width/2;
@@ -225,10 +236,9 @@ window.addEventListener('touchmove', (e) => {
 }, {passive: false});
 
 window.addEventListener('touchend', (e) => {
-    for(let i=0; i<e.changedTouches.length; i++) {
-        if(e.changedTouches[i].identifier === joystick.identifier || e.changedTouches[i].identifier === joystick.id) {
-            joystick.active = false;
-            joystick.id = null;
+    for(let t of e.changedTouches) {
+        if(t.identifier === joystick.id) {
+            joystick.active = false; joystick.id = null;
             joystick.moveX = 0; joystick.moveY = 0;
             joyStick.style.transform = `translate(0px, 0px)`;
         }
@@ -237,9 +247,10 @@ window.addEventListener('touchend', (e) => {
 
 document.getElementById('gatherBtn').addEventListener('touchstart', (e) => {
     resources.forEach((res) => {
-        if(Math.hypot(player.x - res.x, player.y - res.y) < 80) {
-            if(res.type === 'tree') player.resources.wood += 2;
-            else player.resources.stone += 2;
+        if(Math.hypot(player.x - res.x, player.y - res.y) < (res.size + 40)) {
+            let gain = res.big ? 5 : 2;
+            if(res.type === 'tree') player.resources.wood += gain;
+            else player.resources.stone += gain;
             updateUI();
         }
     });
@@ -249,20 +260,31 @@ document.getElementById('gatherBtn').addEventListener('touchstart', (e) => {
 function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Update Position
-    player.x += joystick.moveX * 5;
-    player.y += joystick.moveY * 5;
+    // Movement + World Border Constraints
+    player.x = Math.max(0, Math.min(worldSize, player.x + joystick.moveX * 6));
+    player.y = Math.max(0, Math.min(worldSize, player.y + joystick.moveY * 6));
 
-    // Camera Calculation (Keep player in center)
     const camX = player.x - canvas.width / 2;
     const camY = player.y - canvas.height / 2;
 
     drawGrid(camX, camY);
+    drawWorldBorder(camX, camY);
 
-    // Draw Resources
+    // Render Resources (Culling: only draw if near camera)
     resources.forEach(res => {
-        if(res.type === 'tree') drawTree(res.x - camX, res.y - camY, res.size);
-        else drawRock(res, camX, camY);
+        if(res.x > camX - 100 && res.x < camX + canvas.width + 100 &&
+           res.y > camY - 100 && res.y < camY + canvas.height + 100) {
+            if(res.type === 'tree') drawTree(res.x - camX, res.y - camY, res.size, res.big);
+            else {
+                ctx.fillStyle = '#888'; ctx.strokeStyle = '#666'; ctx.lineWidth = 3;
+                ctx.beginPath();
+                res.points.forEach((p, i) => {
+                    if(i === 0) ctx.moveTo(res.x - camX + p.x, res.y - camY + p.y);
+                    else ctx.lineTo(res.x - camX + p.x, res.y - camY + p.y);
+                });
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            }
+        }
     });
 
     // Draw Structures
@@ -272,18 +294,17 @@ function loop() {
         ctx.strokeRect(s.x - camX - 15, s.y - camY - 15, 30, 30);
     });
 
-    // Draw Player (Locked to Screen Center)
+    // Draw Player Center Screen
     ctx.save();
     ctx.translate(canvas.width/2, canvas.height/2);
     ctx.rotate(player.angle);
     ctx.fillStyle = '#f3e5ab'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
-    // Hands
     ctx.beginPath(); ctx.arc(20, -18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.arc(20, 18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    // Body
     ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
 
+    drawMinimap();
     requestAnimationFrame(loop);
 }
 
