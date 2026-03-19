@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mini Moo Clone</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #b3d176; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { display: block; }
+        #ui {
+            position: absolute; bottom: 20px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; gap: 10px; background: rgba(0,0,0,0.5);
+            padding: 10px; border-radius: 10px;
+        }
+        .stat { color: white; font-weight: bold; text-shadow: 1px 1px 2px black; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div class="stat">Wood: <span id="woodCount">0</span></div>
+    <div class="stat">Stone: <span id="stoneCount">0</span></div>
+    <div class="stat">Gold: <span id="goldCount">0</span></div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const woodDisplay = document.getElementById('woodCount');
+const stoneDisplay = document.getElementById('stoneCount');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// --- Game State ---
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    size: 30,
+    color: '#f3e5ab',
+    speed: 4,
+    angle: 0,
+    resources: { wood: 0, stone: 0, gold: 0 }
+};
+
+const resources = [];
+const keys = {};
+
+// --- Spawning Trees and Rocks ---
+function spawnResources() {
+    for (let i = 0; i < 15; i++) {
+        resources.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            type: Math.random() > 0.3 ? 'tree' : 'rock',
+            size: 40 + Math.random() * 20
+        });
+    }
+}
+
+// --- Input Handling ---
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('mousemove', e => {
+    player.angle = Math.atan2(e.clientY - player.y, e.clientX - player.x);
+});
+
+// Gathering Logic
+window.addEventListener('mousedown', () => {
+    resources.forEach((res, index) => {
+        const dx = player.x - res.x;
+        const dy = player.y - res.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 80) { // Interaction range
+            if (res.type === 'tree') player.resources.wood += 5;
+            if (res.type === 'rock') player.resources.stone += 5;
+            
+            // Simple visual feedback: shrink and grow
+            res.size -= 5;
+            if (res.size < 20) resources.splice(index, 1);
+            
+            updateUI();
+        }
+    });
+});
+
+function updateUI() {
+    woodDisplay.innerText = player.resources.wood;
+    stoneDisplay.innerText = player.resources.stone;
+}
+
+// --- Main Loop ---
+function update() {
+    if (keys['KeyW']) player.y -= player.speed;
+    if (keys['KeyS']) player.y += player.speed;
+    if (keys['KeyA']) player.x -= player.speed;
+    if (keys['KeyD']) player.x += player.speed;
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Resources
+    resources.forEach(res => {
+        ctx.beginPath();
+        ctx.fillStyle = res.type === 'tree' ? '#4d702d' : '#888';
+        ctx.arc(res.x, res.y, res.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.closePath();
+    });
+
+    // Draw Player
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    
+    // Player Body
+    ctx.beginPath();
+    ctx.fillStyle = player.color;
+    ctx.arc(0, 0, player.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.closePath();
+
+    // Hands/Tool
+    ctx.fillStyle = player.color;
+    ctx.beginPath();
+    ctx.arc(35, -15, 10, 0, Math.PI * 2);
+    ctx.arc(35, 15, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+
+    requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+spawnResources();
+draw();
+</script>
+</body>
+</html>
