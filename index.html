@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MooMoo Clone - Deluxe</title>
+    <title>MooMoo Clone - Canopy Update</title>
     <style>
         * {
             user-select: none;
@@ -16,7 +16,6 @@
         body { margin: 0; overflow: hidden; background: #57b031; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
 
-        /* Stats UI */
         #topUI {
             position: absolute; top: 10px; left: 10px;
             display: flex; gap: 15px; background: rgba(0,0,0,0.5);
@@ -24,7 +23,6 @@
             border: 2px solid rgba(255,255,255,0.2); z-index: 10; pointer-events: none;
         }
 
-        /* Crafting Menu Toggle */
         #menuBtn {
             position: absolute; top: 10px; right: 10px;
             width: 50px; height: 50px; background: #4a752c;
@@ -32,7 +30,6 @@
             font-weight: bold; font-size: 20px; cursor: pointer; z-index: 20;
         }
 
-        /* Full Screen Crafting Overlay */
         #craftOverlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); display: none;
@@ -48,9 +45,7 @@
             justify-content: space-around; color: white; font-size: 12px;
             border: 2px solid transparent; cursor: pointer;
         }
-        .item-box:hover { border-color: #57b031; }
 
-        /* Controls */
         #joystick-container {
             position: absolute; bottom: 50px; left: 50px;
             width: 120px; height: 120px; background: rgba(0,0,0,0.2);
@@ -61,6 +56,7 @@
             width: 40px; height: 40px; background: rgba(255,255,255,0.6); 
             border-radius: 50%; pointer-events: none;
         }
+        
         .action-btns {
             position: absolute; bottom: 50px; right: 50px;
             display: flex; gap: 20px; z-index: 10;
@@ -72,14 +68,18 @@
         }
         #gatherBtn { background: #4caf50; }
         #attackBtn { background: #f44336; }
-        #minimap {
-            position: absolute; bottom: 20px; right: 250px;
-            width: 100px; height: 100px; background: rgba(0,0,0,0.3);
-            border: 2px solid white; border-radius: 5px; z-index: 10;
+
+        /* Vignette Effect for Under Trees */
+        #vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, rgba(0,30,0,0.6) 100%);
+            pointer-events: none; z-index: 5; opacity: 0; transition: opacity 0.5s;
         }
     </style>
 </head>
 <body>
+
+<div id="vignette"></div>
 
 <div id="topUI">
     <div>Wood: <span id="woodCount">0</span></div>
@@ -105,7 +105,6 @@
 </div>
 
 <div id="joystick-container"><div id="joystick-stick"></div></div>
-<canvas id="minimap"></canvas>
 <div class="action-btns">
     <button id="gatherBtn" class="ctrl-btn">GATHER</button>
     <button id="attackBtn" class="ctrl-btn">ATTACK</button>
@@ -116,13 +115,11 @@
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const mCanvas = document.getElementById('minimap');
-const mCtx = mCanvas.getContext('2d');
+const vignette = document.getElementById('vignette');
 
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    mCanvas.width = 100; mCanvas.height = 100;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -132,7 +129,7 @@ const worldSize = 5000;
 const player = { 
     x: 2500, y: 2500, size: 25, angle: 0, 
     resources: { wood: 0, stone: 0 },
-    swing: 0, isSwinging: false 
+    swing: 0, isSwinging: false, underTree: false
 };
 const resources = [];
 const structures = [];
@@ -140,18 +137,9 @@ let joystick = { active: false, id: null, moveX: 0, moveY: 0 };
 
 // --- Spawn logic ---
 function init() {
-    for(let i=0; i<400; i++) { // More trees
-        const rand = Math.random();
-        let type = rand > 0.3 ? 'tree' : 'rock';
-        let variant = Math.random();
-        let size = 35 + Math.random() * 20;
-        let color = '#3d5a25';
-        
-        if(type === 'tree') {
-            if(variant > 0.8) { size = 90; color = '#2d451d'; } // Giant Oak
-            else if(variant > 0.6) { size = 30; color = '#5a8236'; } // Small Bush
-        }
-
+    for(let i=0; i<450; i++) { 
+        let type = Math.random() > 0.3 ? 'tree' : 'rock';
+        let size = type === 'tree' ? 100 + Math.random() * 80 : 40 + Math.random() * 20;
         let points = [];
         if(type === 'rock') {
             for(let j=0; j<8; j++) {
@@ -159,11 +147,10 @@ function init() {
                 points.push({x: Math.cos((j/8)*Math.PI*2)*r, y: Math.sin((j/8)*Math.PI*2)*r});
             }
         }
-        resources.push({x: Math.random()*worldSize, y: Math.random()*worldSize, type, size, points, color});
+        resources.push({x: Math.random()*worldSize, y: Math.random()*worldSize, type, size, points});
     }
 }
 
-// --- Menu Logic ---
 function toggleMenu() {
     const menu = document.getElementById('craftOverlay');
     menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
@@ -178,31 +165,28 @@ function craft(item) {
         player.resources.stone -= 10;
         structures.push({x: player.x + Math.cos(player.angle)*60, y: player.y + Math.sin(player.angle)*60, color: '#444'});
     }
-    updateUI();
+    document.getElementById('woodCount').innerText = player.resources.wood;
+    document.getElementById('stoneCount').innerText = player.resources.stone;
     toggleMenu();
 }
 
-function updateUI() {
-    document.getElementById('woodCount').innerText = player.resources.wood;
-    document.getElementById('stoneCount').innerText = player.resources.stone;
-}
-
-// --- Animations & Actions ---
+// --- Action Logic ---
 function performAction() {
     if(player.isSwinging) return;
     player.isSwinging = true;
     player.swing = 0;
 
     resources.forEach((res) => {
-        if(Math.hypot(player.x - res.x, player.y - res.y) < (res.size + 50)) {
-            if(res.type === 'tree') player.resources.wood += (res.size > 70 ? 5 : 2);
+        if(Math.hypot(player.x - res.x, player.y - res.y) < (res.size + 30)) {
+            if(res.type === 'tree') player.resources.wood += 2;
             else player.resources.stone += 2;
-            updateUI();
+            document.getElementById('woodCount').innerText = player.resources.wood;
+            document.getElementById('stoneCount').innerText = player.resources.stone;
         }
     });
 }
 
-// --- Touch Fix ---
+// --- Controls ---
 const joyContainer = document.getElementById('joystick-container');
 const joyStick = document.getElementById('joystick-stick');
 
@@ -242,6 +226,22 @@ window.addEventListener('touchend', (e) => {
 document.getElementById('gatherBtn').ontouchstart = performAction;
 document.getElementById('attackBtn').ontouchstart = performAction;
 
+// --- Rendering Trees ---
+function drawTree(ctx, x, y, size, alpha) {
+    ctx.globalAlpha = alpha;
+    const layers = 5;
+    for(let i=0; i<layers; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#3d5a25' : '#4a6d2c';
+        ctx.beginPath();
+        ctx.arc(x, y, size * (1 - i*0.15), 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.1)";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1.0;
+}
+
 // --- Main Loop ---
 function loop() {
     ctx.clearRect(0,0,canvas.width, canvas.height);
@@ -250,54 +250,56 @@ function loop() {
     const camX = player.x - canvas.width/2;
     const camY = player.y - canvas.height/2;
 
-    // Grid & Border
+    // 1. Grid
     ctx.strokeStyle = "rgba(0,0,0,0.05)"; ctx.beginPath();
     for(let x=-camX%100; x<canvas.width; x+=100){ctx.moveTo(x,0); ctx.lineTo(x,canvas.height);}
     for(let y=-camY%100; y<canvas.height; y+=100){ctx.moveTo(0,y); ctx.lineTo(canvas.width,y);}
     ctx.stroke();
 
-    // Resources
+    // 2. Rocks & Structures
     resources.forEach(res => {
-        if(res.x > camX-100 && res.x < camX+canvas.width+100 && res.y > camY-100 && res.y < camY+canvas.height+100) {
-            if(res.type === 'tree') {
-                for(let i=0; i<3; i++) {
-                    ctx.fillStyle = res.color; ctx.beginPath();
-                    ctx.arc(res.x-camX, res.y-camY, res.size*(1-i*0.3), 0, Math.PI*2); ctx.fill();
-                }
-            } else {
-                ctx.fillStyle = '#888'; ctx.beginPath();
-                res.points.forEach((p,i)=> i===0?ctx.moveTo(res.x-camX+p.x, res.y-camY+p.y):ctx.lineTo(res.x-camX+p.x, res.y-camY+p.y));
-                ctx.fill();
-            }
+        if(res.type === 'rock') {
+            ctx.fillStyle = '#888'; ctx.beginPath();
+            res.points.forEach((p,i)=> i===0?ctx.moveTo(res.x-camX+p.x, res.y-camY+p.y):ctx.lineTo(res.x-camX+p.x, res.y-camY+p.y));
+            ctx.fill();
         }
     });
-
-    // Structures
     structures.forEach(s => {
         ctx.fillStyle = s.color; ctx.fillRect(s.x-camX-15, s.y-camY-15, 30, 30);
     });
 
-    // Player with Hand Animation
+    // 3. Player (Drawn under trees)
     if(player.isSwinging) {
         player.swing += 0.2;
         if(player.swing >= Math.PI) { player.isSwinging = false; player.swing = 0; }
     }
     const handOffset = Math.sin(player.swing) * 15;
-
     ctx.save();
     ctx.translate(canvas.width/2, canvas.height/2);
     ctx.rotate(player.angle);
     ctx.fillStyle = '#f3e5ab'; ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-    // Hands
     ctx.beginPath(); ctx.arc(20 + handOffset, -18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.arc(20 + handOffset, 18, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    // Body
     ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
 
-    // Minimap
-    mCtx.clearRect(0,0,100,100); mCtx.fillStyle="white";
-    mCtx.beginPath(); mCtx.arc((player.x/worldSize)*100, (player.y/worldSize)*100, 3, 0, Math.PI*2); mCtx.fill();
+    // 4. Trees (Drawn on TOP of player)
+    let isCurrentlyUnder = false;
+    resources.forEach(res => {
+        if(res.type === 'tree') {
+            const dist = Math.hypot(player.x - res.x, player.y - res.y);
+            let alpha = 1.0;
+            if(dist < res.size) { 
+                alpha = 0.4; // Ghosting effect
+                isCurrentlyUnder = true; 
+            }
+            drawTree(ctx, res.x - camX, res.y - camY, res.size, alpha);
+        }
+    });
+
+    // Handle Vignette
+    player.underTree = isCurrentlyUnder;
+    vignette.style.opacity = player.underTree ? "1" : "0";
 
     requestAnimationFrame(loop);
 }
